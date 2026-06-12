@@ -1,0 +1,106 @@
+@import "tailwindcss";
+
+* { box-sizing: border-box; }
+
+body {
+  background: #050a05;
+  color: #c8e8a0;
+  font-family: 'Courier New', monospace;
+  overflow-x: hidden;
+}
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #0a1208; }
+::-webkit-scrollbar-thumb { background: #2a5020; border-radius: 3px; }
+
+@keyframes nodeGlow {
+  0%, 100% { box-shadow: 0 0 8px rgba(122,184,64,0.3); }
+  50% { box-shadow: 0 0 24px rgba(122,184,64,0.8), 0 0 48px rgba(122,184,64,0.3); }
+}
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes scanLine {
+  0% { top: -2px; }
+  100% { top: 100vh; }
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+@keyframes boom {
+  0% { transform: scale(0.5); opacity: 0; }
+  60% { transform: scale(1.05); }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+@keyframes connFlow {
+  0% { stroke-dashoffset: 200; }
+  100% { stroke-dashoffset: 0; }
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@keyframes ripple {
+  0% { transform: scale(1); opacity: 0.6; }
+  100% { transform: scale(3); opacity: 0; }
+}
+
+.node-active { animation: nodeGlow 1.5s infinite; }
+.fade-up { animation: fadeUp 0.5s ease forwards; }
+.boom-in { animation: boom 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+
+.shimmer-text {
+  background: linear-gradient(90deg, #7ab840, #c8e8a0, #7ab840, #a0d870);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer 2s linear infinite;
+}
+
+.scanline {
+  position: fixed;
+  left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(122,184,64,0.4), transparent);
+  animation: scanLine 4s linear infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.terminal-cursor {
+  display: inline-block;
+  width: 8px; height: 16px;
+  background: #7ab840;
+  animation: blink 1s infinite;
+  vertical-align: middle;
+  margin-left: 2px;
+}
+
+.conn-line {
+  stroke-dasharray: 8 4;
+  animation: connFlow 1.5s linear infinite;
+}
+
+.glass {
+  background: rgba(10, 20, 8, 0.75);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(122,184,64,0.2);
+}
+
+.spinner {
+  animation: spin 1s linear infinite;
+}
+
+.ripple-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(122,184,64,0.6);
+  animation: ripple 1.5s ease-out infinite;
+}
