@@ -96,54 +96,95 @@ function BirthdayReveal({ userName }: { userName: string }) {
   const cardRef = useRef<HTMLDivElement>(null)
   const [shareState, setShareState] = useState<'idle' | 'capturing' | 'done' | 'error'>('idle')
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const cachedBlobRef = useRef<Blob | null>(null)
   const wishLines = pickLines(userName)
 
-  const handleShare = async () => {
-    if (!cardRef.current) return
-    setShareState('capturing')
-    setPreviewUrl(null)
-    try {
-      const canvas = await html2canvas(cardRef.current, {
-        backgroundColor: '#071208',
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        logging: false,
-        removeContainer: true,
-        onclone: (_doc: Document, el: HTMLElement) => {
-          // Fix webkit gradient text — html2canvas renders it as a solid block
-          el.querySelectorAll<HTMLElement>('[style*="-webkit-text-fill-color"]').forEach(node => {
-            node.style.webkitTextFillColor = 'unset'
-            node.style.webkitBackgroundClip = 'unset'
-            node.style.backgroundClip = 'unset'
-            node.style.background = 'none'
-            node.style.color = '#c8f080'
-          })
-        },
-      })
+  // Pre-capture image in background after card renders — fixes iOS gesture timeout
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      if (!cardRef.current) return
+      try {
+        const canvas = await html2canvas(cardRef.current, {
+          backgroundColor: '#071208',
+          scale: window.devicePixelRatio > 1 ? 1.5 : 2,
+          useCORS: true,
+          allowTaint: true,
+          logging: false,
+          removeContainer: true,
+          onclone: (_doc: Document, el: HTMLElement) => {
+            el.querySelectorAll<HTMLElement>('[style*="-webkit-text-fill-color"]').forEach(node => {
+              node.style.webkitTextFillColor = 'unset'
+              node.style.webkitBackgroundClip = 'unset'
+              node.style.backgroundClip = 'unset'
+              node.style.background = 'none'
+              node.style.color = '#c8f080'
+            })
+          },
+        })
+        const blob: Blob = await new Promise((res, rej) =>
+          canvas.toBlob(b => b ? res(b) : rej(new Error('toBlob failed')), 'image/png', 0.92)
+        )
+        cachedBlobRef.current = blob
+        setPreviewUrl(URL.createObjectURL(blob))
+      } catch (e) {
+        console.warn('Pre-capture failed:', e)
+      }
+    }, 1200) // wait for card animations to settle
+    return () => clearTimeout(timer)
+  }, [])
 
-      const blob: Blob = await new Promise((res, rej) =>
-        canvas.toBlob(b => b ? res(b) : rej(new Error('toBlob failed')), 'image/png', 1.0)
-      )
+  const handleShare = async () => {
+    setShareState('capturing')
+    try {
+      // Use pre-captured blob if available, else capture now
+      let blob = cachedBlobRef.current
+      if (!blob) {
+        if (!cardRef.current) throw new Error('No card')
+        const canvas = await html2canvas(cardRef.current, {
+          backgroundColor: '#071208',
+          scale: 1.5,
+          useCORS: true,
+          allowTaint: true,
+          logging: false,
+          removeContainer: true,
+          onclone: (_doc: Document, el: HTMLElement) => {
+            el.querySelectorAll<HTMLElement>('[style*="-webkit-text-fill-color"]').forEach(node => {
+              node.style.webkitTextFillColor = 'unset'
+              node.style.webkitBackgroundClip = 'unset'
+              node.style.backgroundClip = 'unset'
+              node.style.background = 'none'
+              node.style.color = '#c8f080'
+            })
+          },
+        })
+        blob = await new Promise((res, rej) =>
+          canvas.toBlob(b => b ? res(b) : rej(new Error('toBlob failed')), 'image/png', 0.92)
+        )
+        cachedBlobRef.current = blob
+      }
 
       const file = new File([blob], 'happy-birthday-khurshid.png', { type: 'image/png' })
 
-      // Try native file share (works on Android/iOS with HTTPS or localhost)
-      if (typeof navigator.share === 'function' && navigator.canShare?.({ files: [file] })) {
-        await navigator.share({
-          files: [file],
-          title: '🎂 Happy Birthday Khurshid Alam!',
-          text: `Wishing our company owner Khurshid Alam a very Happy Birthday! — from ${userName}`,
-        })
-        setShareState('done')
-      } else {
-        // Fallback: show image preview + download button
-        const url = URL.createObjectURL(blob)
-        setPreviewUrl(url)
-        setShareState('done')
+      // Try native share with image file (Android + iOS Safari on HTTPS)
+      if (typeof navigator.share === 'function') {
+        try {
+          const shareData: ShareData = navigator.canShare?.({ files: [file] })
+            ? { files: [file], title: '🎂 Happy Birthday Khurshid Alam!', text: `Wishing Khurshid Alam a very Happy Birthday! — from ${userName}` }
+            : { title: '🎂 Happy Birthday Khurshid Alam!', text: `Wishing Khurshid Alam a very Happy Birthday! — from ${userName}\n${window.location.href}` }
+          await navigator.share(shareData)
+          setShareState('done')
+          setTimeout(() => setShareState('idle'), 3000)
+          return
+        } catch (e: unknown) {
+          // User cancelled — not an error
+          if (e instanceof Error && e.name === 'AbortError') { setShareState('idle'); return }
+        }
       }
 
-      setTimeout(() => setShareState('idle'), 4000)
+      // Fallback: show preview image
+      if (!previewUrl && blob) setPreviewUrl(URL.createObjectURL(blob))
+      setShareState('done')
+      setTimeout(() => setShareState('idle'), 6000)
     } catch (err) {
       console.error('Share failed:', err)
       setShareState('error')
