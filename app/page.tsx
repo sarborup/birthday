@@ -1,7 +1,6 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import dynamic from 'next/dynamic'
-import html2canvas from 'html2canvas'
 
 const ThreeBackground = dynamic(() => import('@/components/ThreeBackground'), { ssr: false })
 const FlowCanvas = dynamic(() => import('@/components/FlowCanvas'), { ssr: false })
@@ -93,113 +92,36 @@ function pickLines(name: string): string[] {
 }
 
 function BirthdayReveal({ userName }: { userName: string }) {
-  const cardRef = useRef<HTMLDivElement>(null)
-  const [shareState, setShareState] = useState<'idle' | 'capturing' | 'done' | 'error'>('idle')
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
-  const cachedBlobRef = useRef<Blob | null>(null)
+  const [shareState, setShareState] = useState<'idle' | 'sharing' | 'done' | 'error'>('idle')
   const wishLines = pickLines(userName)
 
-  // Pre-capture image in background after card renders — fixes iOS gesture timeout
-  useEffect(() => {
-    const timer = setTimeout(async () => {
-      if (!cardRef.current) return
-      try {
-        const canvas = await html2canvas(cardRef.current, {
-          backgroundColor: '#071208',
-          scale: window.devicePixelRatio > 1 ? 1.5 : 2,
-          useCORS: true,
-          allowTaint: true,
-          logging: false,
-          removeContainer: true,
-          onclone: (_doc: Document, el: HTMLElement) => {
-            el.querySelectorAll<HTMLElement>('[style*="-webkit-text-fill-color"]').forEach(node => {
-              node.style.webkitTextFillColor = 'unset'
-              node.style.webkitBackgroundClip = 'unset'
-              node.style.backgroundClip = 'unset'
-              node.style.background = 'none'
-              node.style.color = '#c8f080'
-            })
-          },
-        })
-        const blob: Blob = await new Promise((res, rej) =>
-          canvas.toBlob(b => b ? res(b) : rej(new Error('toBlob failed')), 'image/png', 0.92)
-        )
-        cachedBlobRef.current = blob
-        setPreviewUrl(URL.createObjectURL(blob))
-      } catch (e) {
-        console.warn('Pre-capture failed:', e)
-      }
-    }, 1200) // wait for card animations to settle
-    return () => clearTimeout(timer)
-  }, [])
-
   const handleShare = async () => {
-    setShareState('capturing')
+    setShareState('sharing')
+    const url = window.location.href
+    const text = `🎂 Happy Birthday Khurshid Alam!\nWishing our company owner a very Happy Birthday! — from ${userName}\n\n${url}`
+
+    // 1. Try native Web Share API (works on all modern mobile browsers)
+    if (typeof navigator.share === 'function') {
+      try {
+        await navigator.share({ title: '🎂 Happy Birthday Khurshid Alam!', text })
+        setShareState('done')
+        setTimeout(() => setShareState('idle'), 3000)
+        return
+      } catch (e: unknown) {
+        if (e instanceof Error && e.name === 'AbortError') { setShareState('idle'); return }
+        // fall through to clipboard
+      }
+    }
+
+    // 2. Fallback: copy link to clipboard
     try {
-      // Use pre-captured blob if available, else capture now
-      let blob = cachedBlobRef.current
-      if (!blob) {
-        if (!cardRef.current) throw new Error('No card')
-        const canvas = await html2canvas(cardRef.current, {
-          backgroundColor: '#071208',
-          scale: 1.5,
-          useCORS: true,
-          allowTaint: true,
-          logging: false,
-          removeContainer: true,
-          onclone: (_doc: Document, el: HTMLElement) => {
-            el.querySelectorAll<HTMLElement>('[style*="-webkit-text-fill-color"]').forEach(node => {
-              node.style.webkitTextFillColor = 'unset'
-              node.style.webkitBackgroundClip = 'unset'
-              node.style.backgroundClip = 'unset'
-              node.style.background = 'none'
-              node.style.color = '#c8f080'
-            })
-          },
-        })
-        blob = await new Promise((res, rej) =>
-          canvas.toBlob(b => b ? res(b) : rej(new Error('toBlob failed')), 'image/png', 0.92)
-        )
-        cachedBlobRef.current = blob
-      }
-
-      const file = new File([blob], 'happy-birthday-khurshid.png', { type: 'image/png' })
-
-      // Try native share with image file (Android + iOS Safari on HTTPS)
-      if (typeof navigator.share === 'function') {
-        try {
-          const shareData: ShareData = navigator.canShare?.({ files: [file] })
-            ? { files: [file], title: '🎂 Happy Birthday Khurshid Alam!', text: `Wishing Khurshid Alam a very Happy Birthday! — from ${userName}` }
-            : { title: '🎂 Happy Birthday Khurshid Alam!', text: `Wishing Khurshid Alam a very Happy Birthday! — from ${userName}\n${window.location.href}` }
-          await navigator.share(shareData)
-          setShareState('done')
-          setTimeout(() => setShareState('idle'), 3000)
-          return
-        } catch (e: unknown) {
-          // User cancelled — not an error
-          if (e instanceof Error && e.name === 'AbortError') { setShareState('idle'); return }
-        }
-      }
-
-      // Fallback: show preview image
-      if (!previewUrl && blob) setPreviewUrl(URL.createObjectURL(blob))
+      await navigator.clipboard.writeText(text)
       setShareState('done')
-      setTimeout(() => setShareState('idle'), 6000)
-    } catch (err) {
-      console.error('Share failed:', err)
+      setTimeout(() => setShareState('idle'), 3000)
+    } catch {
       setShareState('error')
       setTimeout(() => setShareState('idle'), 3000)
     }
-  }
-
-  const handleDownload = () => {
-    if (!previewUrl) return
-    const a = document.createElement('a')
-    a.href = previewUrl
-    a.download = 'happy-birthday-khurshid.png'
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
   }
 
   return (
@@ -207,7 +129,7 @@ function BirthdayReveal({ userName }: { userName: string }) {
 
       {/* ── THE CARD (this gets screenshotted) ── */}
       <div
-        ref={cardRef}
+
         className="w-full max-w-lg boom-in rounded-2xl overflow-hidden"
         style={{ background: 'linear-gradient(135deg, #071208 0%, #0a1a08 40%, #071510 100%)', border: '1px solid rgba(122,184,64,0.25)' }}
       >
@@ -288,51 +210,30 @@ function BirthdayReveal({ userName }: { userName: string }) {
       </div>
 
       {/* ── SHARE BUTTON ── */}
-      <div className="w-full max-w-lg flex flex-col gap-2">
+      <div className="w-full max-w-lg">
         <button
           onClick={handleShare}
-          disabled={shareState === 'capturing'}
+          disabled={shareState === 'sharing'}
           className="w-full flex items-center justify-center gap-3 py-4 rounded-xl font-mono font-bold text-sm tracking-wide transition-all duration-300 relative overflow-hidden group"
           style={{
-            background: shareState === 'error' ? 'rgba(60,15,10,0.9)' : shareState === 'done' && !previewUrl ? 'rgba(20,70,10,0.9)' : 'rgba(30,80,15,0.9)',
-            border: `2px solid ${shareState === 'error' ? '#a03020' : shareState === 'done' && !previewUrl ? '#5ab830' : '#7ab840'}`,
+            background: shareState === 'error' ? 'rgba(60,15,10,0.9)' : shareState === 'done' ? 'rgba(20,70,10,0.9)' : 'rgba(30,80,15,0.9)',
+            border: `2px solid ${shareState === 'error' ? '#a03020' : shareState === 'done' ? '#5ab830' : '#7ab840'}`,
             color: '#c8f080',
-            boxShadow: shareState === 'capturing' ? 'none' : '0 0 24px rgba(122,184,64,0.3)',
+            boxShadow: shareState === 'sharing' ? 'none' : '0 0 24px rgba(122,184,64,0.3)',
           }}
         >
           <div className="absolute inset-0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700 pointer-events-none" style={{background:'rgba(122,184,64,0.1)'}} />
-          {shareState === 'capturing' && <svg className="w-5 h-5 spinner flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" strokeOpacity="0.3"/><path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round"/></svg>}
-          {(shareState === 'done' && !previewUrl) && <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="#5ab830" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>}
+          {shareState === 'sharing' && <svg className="w-5 h-5 spinner flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" strokeOpacity="0.3"/><path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round"/></svg>}
+          {shareState === 'done' && <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="#5ab830" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>}
           {shareState === 'error' && <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="#f07060" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>}
-          {(shareState === 'idle' || previewUrl) && <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>}
+          {shareState === 'idle' && <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>}
           <span className="relative z-10">
-            {shareState === 'capturing' ? 'Capturing screenshot...' :
+            {shareState === 'sharing' ? 'Opening share...' :
              shareState === 'error' ? 'Failed — tap to retry' :
-             shareState === 'done' && !previewUrl ? 'Shared to group!' :
+             shareState === 'done' ? 'Link copied & shared! 🎉' :
              'Share in the group'}
           </span>
         </button>
-
-        {/* Fallback: show image preview with save/download instructions */}
-        {previewUrl && (
-          <div className="glass rounded-xl p-3 flex flex-col gap-2 boom-in">
-            <p className="text-[#5a8a30] text-xs font-mono text-center">Screenshot ready — save &amp; share in your group</p>
-            <img src={previewUrl} alt="Birthday card" className="w-full rounded-lg border border-[#2a5020]" style={{ maxHeight: '200px', objectFit: 'contain' }} />
-            <div className="flex gap-2">
-              <button onClick={handleDownload}
-                className="flex-1 py-2.5 rounded-lg text-xs font-mono font-bold text-[#c8f080] border border-[#3a6a20] bg-[#1a3a10] hover:bg-[#2a5a18] transition-colors flex items-center justify-center gap-2">
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                Download Image
-              </button>
-              <button onClick={() => { if (previewUrl) { navigator.clipboard?.writeText(window.location.href).catch(()=>{}) } }}
-                className="flex-1 py-2.5 rounded-lg text-xs font-mono font-bold text-[#7ab840] border border-[#2a5020] bg-[#0a1a08] hover:bg-[#1a3010] transition-colors flex items-center justify-center gap-2">
-                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
-                Copy Link
-              </button>
-            </div>
-            <p className="text-[#2a5018] text-xs font-mono text-center">On mobile: long-press the image above to save &amp; share</p>
-          </div>
-        )}
       </div>
     </div>
   )
