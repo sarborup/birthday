@@ -92,7 +92,9 @@ function pickLines(name: string): string[] {
 }
 
 function BirthdayReveal({ userName }: { userName: string }) {
-  const [shareState, setShareState] = useState<'idle' | 'sharing' | 'done' | 'error'>('idle')
+  const [shareState, setShareState] = useState<'idle' | 'sharing' | 'done' | 'copied' | 'manual'>('idle')
+  const [showManual, setShowManual] = useState(false)
+  const urlRef = useRef<HTMLInputElement>(null)
   const wishLines = pickLines(userName)
 
   const handleShare = async () => {
@@ -100,7 +102,7 @@ function BirthdayReveal({ userName }: { userName: string }) {
     const url = window.location.href
     const text = `🎂 Happy Birthday Khurshid Alam!\nWishing our company owner a very Happy Birthday! — from ${userName}\n\n${url}`
 
-    // 1. Try native Web Share API (works on all modern mobile browsers)
+    // Level 1 — Native share sheet (iOS Safari, Android Chrome, Samsung Browser etc.)
     if (typeof navigator.share === 'function') {
       try {
         await navigator.share({ title: '🎂 Happy Birthday Khurshid Alam!', text })
@@ -109,19 +111,25 @@ function BirthdayReveal({ userName }: { userName: string }) {
         return
       } catch (e: unknown) {
         if (e instanceof Error && e.name === 'AbortError') { setShareState('idle'); return }
-        // fall through to clipboard
       }
     }
 
-    // 2. Fallback: copy link to clipboard
+    // Level 2 — Copy to clipboard (desktop Chrome/Firefox/Edge, newer Android WebView)
     try {
       await navigator.clipboard.writeText(text)
-      setShareState('done')
-      setTimeout(() => setShareState('idle'), 3000)
-    } catch {
-      setShareState('error')
-      setTimeout(() => setShareState('idle'), 3000)
-    }
+      setShareState('copied')
+      setTimeout(() => setShareState('idle'), 4000)
+      return
+    } catch { /* fall through */ }
+
+    // Level 3 — Manual copy popup (old browsers, restricted environments)
+    setShowManual(true)
+    setShareState('manual')
+  }
+
+  const handleManualCopy = () => {
+    urlRef.current?.select()
+    try { document.execCommand('copy') } catch { /* best effort */ }
   }
 
   return (
@@ -210,30 +218,54 @@ function BirthdayReveal({ userName }: { userName: string }) {
       </div>
 
       {/* ── SHARE BUTTON ── */}
-      <div className="w-full max-w-lg">
+      <div className="w-full max-w-lg flex flex-col gap-3">
         <button
           onClick={handleShare}
-          disabled={shareState === 'sharing'}
+          disabled={shareState === 'sharing' || shareState === 'manual'}
           className="w-full flex items-center justify-center gap-3 py-4 rounded-xl font-mono font-bold text-sm tracking-wide transition-all duration-300 relative overflow-hidden group"
           style={{
-            background: shareState === 'error' ? 'rgba(60,15,10,0.9)' : shareState === 'done' ? 'rgba(20,70,10,0.9)' : 'rgba(30,80,15,0.9)',
-            border: `2px solid ${shareState === 'error' ? '#a03020' : shareState === 'done' ? '#5ab830' : '#7ab840'}`,
+            background: shareState === 'done' || shareState === 'copied' ? 'rgba(20,70,10,0.9)' : 'rgba(30,80,15,0.9)',
+            border: `2px solid ${shareState === 'done' || shareState === 'copied' ? '#5ab830' : '#7ab840'}`,
             color: '#c8f080',
             boxShadow: shareState === 'sharing' ? 'none' : '0 0 24px rgba(122,184,64,0.3)',
           }}
         >
           <div className="absolute inset-0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700 pointer-events-none" style={{background:'rgba(122,184,64,0.1)'}} />
           {shareState === 'sharing' && <svg className="w-5 h-5 spinner flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" strokeOpacity="0.3"/><path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round"/></svg>}
-          {shareState === 'done' && <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="#5ab830" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>}
-          {shareState === 'error' && <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="#f07060" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>}
-          {shareState === 'idle' && <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>}
+          {(shareState === 'done' || shareState === 'copied') && <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="#5ab830" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>}
+          {(shareState === 'idle' || shareState === 'manual') && <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>}
           <span className="relative z-10">
-            {shareState === 'sharing' ? 'Opening share...' :
-             shareState === 'error' ? 'Failed — tap to retry' :
-             shareState === 'done' ? 'Link copied & shared! 🎉' :
+            {shareState === 'sharing' ? 'Opening...' :
+             shareState === 'done'    ? 'Shared! 🎉' :
+             shareState === 'copied'  ? 'Link copied! Paste in group 📋' :
              'Share in the group'}
           </span>
         </button>
+
+        {/* Level 3 fallback — manual copy box */}
+        {showManual && (
+          <div className="boom-in rounded-xl p-3 flex flex-col gap-2" style={{background:'rgba(8,20,5,0.95)', border:'1px solid rgba(80,160,40,0.4)'}}>
+            <p className="text-[#7ab840] text-xs font-mono text-center">Copy this link and paste in your group 👇</p>
+            <div className="flex gap-2">
+              <input
+                ref={urlRef}
+                readOnly
+                value={window.location.href}
+                className="flex-1 rounded-lg px-3 py-2 text-xs font-mono text-[#c8f080] outline-none"
+                style={{background:'rgba(5,12,3,0.9)', border:'1px solid rgba(60,120,30,0.5)'}}
+                onFocus={e => e.target.select()}
+              />
+              <button
+                onClick={handleManualCopy}
+                className="px-3 py-2 rounded-lg text-xs font-mono font-bold text-[#c8f080] flex-shrink-0"
+                style={{background:'rgba(30,80,15,0.9)', border:'1px solid #5ab830'}}
+              >
+                Copy
+              </button>
+            </div>
+            <p className="text-[#3a6020] text-xs font-mono text-center">Tap the link → Select All → Copy</p>
+          </div>
+        )}
       </div>
     </div>
   )
